@@ -13,3 +13,5 @@ Usage: tenhoulogcollector [/nowait]
 Operating systems supported: Windows XP or higher, most variants of Unix/Linux.
 
 For Unix/Linux, compile the program by typing 'make'. If there are errors then your operating system is not supported.
+
+Contact: hideki.nakeda@gmail.com
