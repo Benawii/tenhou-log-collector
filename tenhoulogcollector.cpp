@@ -788,7 +788,7 @@ int main(int argc, char *argv[])
 	log_output_file = get_log_output_file();
 	if(log_output_file == NULL)
 	{
-		fprintf(stderr, "Error: cannot open logs.csv. Is the file opened by another program?\n");
+		fprintf(stderr, "Error: cannot open logs.csv. Is the file currently opened by another program?\n");
 		wait_and_exit();
 	}
 	loginfo = mk_read_log_output(log_output_file, &num_entries, &loginfo_maxsize);
