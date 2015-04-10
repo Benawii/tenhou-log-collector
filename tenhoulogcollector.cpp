@@ -21,6 +21,9 @@
 #ifdef _WIN32
 #define FLASH_STORAGE_PATH L"\\AppData\\Roaming\\Macromedia\\Flash Player\\#SharedObjects"
 #define FLASH_STORAGE_PATH_CHROME L"\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Pepper Data\\Shockwave Flash\\WritableRoot\\#SharedObjects"
+#elif defined(Macintosh) || defined(macintosh) || (defined(__APPLE__) && defined(__MACH__))
+#define FLASH_STORAGE_PATH "/Library/Preferences/Macromedia/Flash Player/#SharedObjects/"
+#define FLASH_STORAGE_PATH_CHROME "/Library/Application Support/Google/Chrome/Default/Pepper Data/Shockwave Flash/WritableRoot/#SharedObjects/"
 #else
 #define FLASH_STORAGE_PATH "/.macromedia/Flash_Player/#SharedObjects/"
 #define FLASH_STORAGE_PATH_CHROME "/.config/google-chrome/Default/Pepper Data/Shockwave Flash/WritableRoot/#SharedObjects/"
