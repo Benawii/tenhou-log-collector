@@ -3,7 +3,7 @@ tenhou-log-collector
 
 A tool for collecting log links from Tenhou's Mahjong clients.
 
-Both Tenhou's Windows client and flash clients remove old game links. This tool lets you save those links in a separate file so that they never get deleted. It will look for logs in Flash's local storage as well as Windows client's directory. Collected game links are stored in logs.csv, in the same directory as the tool.
+Both Tenhou's Windows client and flash clients remove old game links. This tool lets you save those links in a separate file so that they never get deleted. It will look for logs in Flash's local storage as well as Windows client's directory. Collected game links are stored in the file logs.csv, in the same directory as the tool.
 
 ```
 Usage: tenhoulogcollector [/nowait]
