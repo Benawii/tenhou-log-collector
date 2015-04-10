@@ -630,7 +630,6 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 				break;
 			}
 		}
-		//unescape_log_id((*loginfo)[*num_entries].log_id, loginfo_entry.log_id);
 		strcpy((*loginfo)[*num_entries].log_id, loginfo_entry.log_id);
 		p = q + 1;
 		if(buf + bytes_read - p < 4 || strncmp(p, "un0=", 4) != 0)
