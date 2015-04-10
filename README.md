@@ -1,7 +1,7 @@
 tenhou-log-collector
 ====================
 
-A tool for collecting log links from tenhou's Mahjong clients.
+A tool for collecting log links from Tenhou's Mahjong clients.
 
 It will look for logs in Flash's local storage as well as Windows client's directory. Collected game links are stored in logs.csv, in the same directory as the tool.
 
