@@ -206,11 +206,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			if(buf[0] == '[')
 				break;
 			p = strstr(buf, "=file=");
-			if(p == NULL)
-			{
-				error = 2;
-				break;
-			}
+			if(p == NULL) break;
 
 			p += 6;
 			q = strchr(p, '&');
@@ -363,7 +359,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 		else if(error == 2)
 		{
 			*loginfo = NULL;
-			fprintf(stderr, "Error: cannot parse log links\n");
+			fprintf(stderr, "Error: cannot parse Windows client's log links\n");
 		}
 	}
 	fclose(in);
@@ -572,12 +568,10 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	int file_size, bytes_read, error, num_new_logs;
 	struct loginfo_t loginfo_entry;
 	
+	if(*loginfo == NULL) return;
+
 	in = get_flash_storage_file(&file_size, is_chrome);
-	if(in == NULL)
-	{
-		printf("%slash log not found\n", is_chrome ? "Chrome's f" : "F");
-		return;//file does not exist
-	}
+	if(in == NULL) return;//file does not exist
 
 	buf = (char *)malloc(sizeof(char) * (file_size + 1024));
 	if(buf == NULL)
@@ -757,7 +751,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		p = (char *)memmem(p, buf + bytes_read - p, "file=", 5);
 	}
 	if(error == 0)
-		printf("%d new logs collected from flash client\n", num_new_logs);
+		printf("%d new logs collected from Flash client%s\n", num_new_logs, 
+			is_chrome ? " on Chrome" : "");
 	else if(error == 1)
 		fprintf(stderr, "Error: not enough memory\n");
 	if(error == 2)
