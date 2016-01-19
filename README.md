@@ -14,6 +14,7 @@ Usage: tenhoulogcollector [/nowait]
 
 Operating systems supported: Windows XP or higher, Mac OS 9 or higher, and most variants of Unix/Linux.
 
-For Mac OS and Unix/Linux, you need to first compile the program by typing 'make' while in the program directory. If there are compilation errors then your operating system is probably not supported.
+For Windows, download tenhoulogcollector.exe and run it.
+
 
 Contact: hideki.nakeda@gmail.com
