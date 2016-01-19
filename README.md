@@ -16,5 +16,6 @@ Operating systems supported: Windows XP or higher, Mac OS 9 or higher, and most 
 
 For Windows, download tenhoulogcollector.exe and run it.
 
+For Mac OS and Unix/Linux, download Makefile and tenhoulogcollector.cpp. You need to first compile the program by typing 'make' in a terminal window. If there are compilation errors then your operating system is probably not supported.
 
 Contact: hideki.nakeda@gmail.com
