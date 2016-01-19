@@ -1,3 +1,7 @@
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,12 +28,10 @@
 #elif defined(Macintosh) || defined(macintosh) || (defined(__APPLE__) && defined(__MACH__))
 #define FLASH_STORAGE_PATH "/Library/Preferences/Macromedia/Flash Player/#SharedObjects/"
 #define FLASH_STORAGE_PATH_CHROME "/Library/Application Support/Google/Chrome/Default/Pepper Data/Shockwave Flash/WritableRoot/#SharedObjects/"
-#else
+#else//Linux/Unix
 #define FLASH_STORAGE_PATH "/.macromedia/Flash_Player/#SharedObjects/"
 #define FLASH_STORAGE_PATH_CHROME "/.config/google-chrome/Default/Pepper Data/Shockwave Flash/WritableRoot/#SharedObjects/"
 #endif
-
-int log_exists = 0;
 
 struct loginfo_t {
 	char log_id[LOG_ID_MAXLEN + 1];
@@ -69,11 +71,8 @@ FILE *get_log_output_file()
 		fputs(CSV_HEADER, log_output_file);
 		fclose(log_output_file);
 		log_output_file = fopen(LOG_OUTPUT_FILENAME, "r+");
-		log_exists = 0;
+		if(log_output_file == NULL) return NULL;//cannot open file
 	}
-	else log_exists = 1;
-
-	check_log_output_file_format(log_output_file);
 
 	return log_output_file;
 }
@@ -127,6 +126,12 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 		return NULL;
 	}
 
+	if(check_log_output_file_format(log_output_file) == 0)
+	{
+		fprintf(stderr, "Error: existing %s is not in the correct format\n", LOG_OUTPUT_FILENAME);
+		return NULL;
+	}
+
 	num_entries = 0;
 	while(fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, 
 		log_output_file) != NULL)
@@ -152,6 +157,7 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 		}
 		num_entries++;
 	}
+
 	*num_entries_out = num_entries;
 	*num_max_entries_out = loginfo_maxsize;
 	return loginfo;
@@ -175,7 +181,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 	FILE *in;
 	const char *userprofile;
 	char *path, *p, *q;
-	int path_size, found, error, num_new_logs;
+	int path_size, found, error, num_new_logs, n, ct;
 	static char buf[LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256];
 	struct loginfo_t loginfo_entry;
 
@@ -189,6 +195,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 	free(path);
 	if(in == NULL) return;//file does not exist
 
+	//look for "[LOG]" line
 	found = 0;
 	while(fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, in) != NULL)
 		if(strncmp(buf, "[LOG]", 5) == 0)
@@ -200,14 +207,18 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 	{
 		error = 0;
 		num_new_logs = 0;
-		fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, in);
+		ct = 0;
+		fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, in);//"N=#" line
 		while(fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, in) != NULL)
 		{
-			if(buf[0] == '[')
-				break;
+			buf[LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256 - 1] = 0;//make sure buf is null terminated
+			if(sscanf(buf, "%d=", &n) != 1 || n != ct) break;//no more game log
+
+			ct++;
 			p = strstr(buf, "=file=");
 			if(p == NULL) break;
 
+			//log id
 			p += 6;
 			q = strchr(p, '&');
 			if(q == NULL || q - p > LOG_ID_MAXLEN)
@@ -232,6 +243,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 				}
 			}
 			strcpy((*loginfo)[*num_entries].log_id, loginfo_entry.log_id);
+
+			//player1
 			p = q + 1;
 			if(strncmp(p, "un0=", 4) != 0)
 			{
@@ -248,6 +261,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			memcpy((*loginfo)[*num_entries].player_names[0], p, q - p);
 			(*loginfo)[*num_entries].player_names[0][q - p] = 0;
 			p = q + 1;
+
+			//player2
 			if(strncmp(p, "un1=", 4) != 0)
 			{
 				error = 2;
@@ -263,6 +278,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			memcpy((*loginfo)[*num_entries].player_names[1], p, q - p);
 			(*loginfo)[*num_entries].player_names[1][q - p] = 0;
 			p = q + 1;
+
+			//player3
 			if(strncmp(p, "un2=", 4) != 0)
 			{
 				error = 2;
@@ -278,6 +295,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			memcpy((*loginfo)[*num_entries].player_names[2], p, q - p);
 			(*loginfo)[*num_entries].player_names[2][q - p] = 0;
 			p = q + 1;
+
+			//player4
 			if(strncmp(p, "un3=", 4) != 0)
 			{
 				error = 2;
@@ -293,6 +312,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			memcpy((*loginfo)[*num_entries].player_names[3], p, q - p);
 			(*loginfo)[*num_entries].player_names[3][q - p] = 0;
 			p = q + 1;
+
+			//first_oya
 			if(strncmp(p, "oya=", 4) != 0 || p[4] < '0' || p[4] > '3')
 			{
 				error = 2;
@@ -301,6 +322,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			p += 4;
 			(*loginfo)[*num_entries].first_oya = (*p - '0') + 1;
 			p += 2;
+			
+			//game mode
 			if(strncmp(p, "type=", 5) != 0)
 			{
 				error = 2;
@@ -312,6 +335,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 				error = 2;
 				break;
 			}
+
+			//scores
 			q = strchr(p, '&');
 			if(q == NULL)
 			{
@@ -353,7 +378,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			num_new_logs++;
 		}
 		if(error == 0)
-			printf("%d new logs collected from windows client\n", num_new_logs);
+			printf("%d new game logs collected from Windows client\n", num_new_logs);
 		else if(error == 1)
 			fprintf(stderr, "Error: not enough memory\n");
 		else if(error == 2)
@@ -365,7 +390,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 	fclose(in);
 }
 
-void wait_and_exit()
+void wait_and_exit(int return_code)
 {
 #ifdef _WIN32
 	printf("Press any key to exit...\n");
@@ -376,7 +401,7 @@ void wait_and_exit()
 	printf("Press enter to exit...\n");
 	fgets(buf, 2, stdin);
 #endif
-	exit(0);
+	exit(return_code);
 }
 
 int loginfo_t_sf(const void *a, const void *b)
@@ -391,6 +416,7 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 {
 	int i;
 
+	//sort by log id (based on timestamp)
 	qsort(loginfo, num_entries, sizeof(loginfo[0]), loginfo_t_sf);
 	fseek(log_output_file, 0, SEEK_SET);
 	fputs(CSV_HEADER, log_output_file);
@@ -402,6 +428,7 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 }
 
 #ifdef _WIN32
+//Note: flash storage location is different for Google Chrome browser
 FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 {
 	FILE *in;
@@ -417,13 +444,13 @@ FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 		path_size = wcslen(userprofile) + wcslen(FLASH_STORAGE_PATH_CHROME) + 27 + 1;
 	path = (wchar_t *)malloc(sizeof(wchar_t) * path_size);
 	if(!is_chrome)
-		swprintf(path, L"%s%s\\*", userprofile, FLASH_STORAGE_PATH);
+		swprintf(path, path_size, L"%s%s\\*", userprofile, FLASH_STORAGE_PATH);
 	else
-		swprintf(path, L"%s%s\\*", userprofile, FLASH_STORAGE_PATH_CHROME);
+		swprintf(path, path_size, L"%s%s\\*", userprofile, FLASH_STORAGE_PATH_CHROME);
 	dir_handle = FindFirstFile(path, &find_data);
 	if(dir_handle == INVALID_HANDLE_VALUE) return NULL;
 
-	rt = 1;
+	//get the name of the shared object directory within this directory
 	do
 	{
 		if(find_data.cFileName[0] != L'.') break;
@@ -438,7 +465,7 @@ FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 	}
 	if(rt == 0) return NULL;//no directory found
 
-	swprintf(path, L"%s%s\\%s\\mjv.jp\\mjinfo.sol", userprofile, 
+	swprintf(path, path_size, L"%s%s\\%s\\mjv.jp\\mjinfo.sol", userprofile, 
 		FLASH_STORAGE_PATH, find_data.cFileName);
 	in = _wfopen(path, L"rb");
 	
@@ -478,6 +505,7 @@ FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 	free(path);
 	if(dir == NULL) return NULL;
 
+	//get the name of the shared object directory within this directory
 	while(1)
 	{
 		entry = readdir(dir);
@@ -560,6 +588,7 @@ void unescape_log_id(char *dest, char *source)
 	*dest = 0;
 }
 
+//Note: flash storage location is different for Google Chrome browser
 void collect_logs_from_flash_client(struct loginfo_t **loginfo, 
 	int *num_entries, int *num_max_entries, int is_chrome)
 {
@@ -589,7 +618,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		if(bytes_read < file_size)
 			fprintf(stderr, "Error: cannot read flash storage file\n");
 		else
-			fprintf(stderr, "Error: file changed too much between two reads\n");
+			fprintf(stderr, "Error: flash storage file changed between two reads\n");
 		fclose(in);
 		return;
 	}
@@ -600,6 +629,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	p = (char *)memmem(buf, bytes_read, "file=", 5);
 	while(p != NULL)
 	{
+		//log id
 		p += 5;
 		q = (char *)memchr(p, '&', buf + bytes_read - p);
 		if(q == NULL || q - p > LOG_ID_MAXLEN)
@@ -629,6 +659,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		}
 		strcpy((*loginfo)[*num_entries].log_id, loginfo_entry.log_id);
 		p = q + 1;
+
+		//player1
 		if(buf + bytes_read - p < 4 || strncmp(p, "un0=", 4) != 0)
 		{
 			error = 2;
@@ -644,6 +676,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		memcpy((*loginfo)[*num_entries].player_names[0], p, q - p);
 		(*loginfo)[*num_entries].player_names[0][q - p] = 0;
 		p = q + 1;
+
+		//player2
 		if(buf + bytes_read - p < 4 || strncmp(p, "un1=", 4) != 0)
 		{
 			error = 2;
@@ -659,6 +693,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		memcpy((*loginfo)[*num_entries].player_names[1], p, q - p);
 		(*loginfo)[*num_entries].player_names[1][q - p] = 0;
 		p = q + 1;
+
+		//player3
 		if(buf + bytes_read - p < 4 || strncmp(p, "un2=", 4) != 0)
 		{
 			error = 2;
@@ -674,6 +710,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		memcpy((*loginfo)[*num_entries].player_names[2], p, q - p);
 		(*loginfo)[*num_entries].player_names[2][q - p] = 0;
 		p = q + 1;
+
+		//player4
 		if(buf + bytes_read - p < 4 || strncmp(p, "un3=", 4) != 0)
 		{
 			error = 2;
@@ -689,6 +727,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		memcpy((*loginfo)[*num_entries].player_names[3], p, q - p);
 		(*loginfo)[*num_entries].player_names[3][q - p] = 0;
 
+		//first oya
 		p = q + 1;
 		if(buf + bytes_read - p < 5 || strncmp(p, "oya=", 4) != 0 || p[4] < '0' || p[4] > '3')
 		{
@@ -698,6 +737,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		p += 4;
 		(*loginfo)[*num_entries].first_oya = (*p - '0') + 1;
 		p += 2;
+
+		//game mode
 		if(buf + bytes_read - p < 6 || strncmp(p, "type=", 5) != 0)
 		{
 			error = 2;
@@ -709,6 +750,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 			error = 2;
 			break;
 		}
+
+		//scores
 		q = (char *)memchr(p, '&', buf + bytes_read - p);
 		if(q == NULL)
 		{
@@ -752,7 +795,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	}
 	if(error == 0)
 		printf("%d new logs collected from Flash client%s\n", num_new_logs, 
-			is_chrome ? " on Chrome" : "");
+			is_chrome ? " on Google Chrome" : "");
 	else if(error == 1)
 		fprintf(stderr, "Error: not enough memory\n");
 	if(error == 2)
@@ -766,7 +809,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 }
 
 //returns 1 if flag is set, 0 otherwise
-int get_nowait_flag(int argc, char *argv[])
+int get_nowait_arg_flag(int argc, char *argv[])
 {
 	int i;
 
@@ -781,12 +824,12 @@ int main(int argc, char *argv[])
 	struct loginfo_t *loginfo;
 	int num_entries, loginfo_maxsize, nowait_flag;
 
-	nowait_flag = get_nowait_flag(argc, argv);
+	nowait_flag = get_nowait_arg_flag(argc, argv);
 	log_output_file = get_log_output_file();
 	if(log_output_file == NULL)
 	{
-		fprintf(stderr, "Error: cannot open logs.csv. Is the file currently opened by another program?\n");
-		wait_and_exit();
+		fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
+		wait_and_exit(1);
 	}
 	loginfo = mk_read_log_output(log_output_file, &num_entries, &loginfo_maxsize);
 
@@ -798,14 +841,15 @@ int main(int argc, char *argv[])
 	if(loginfo == NULL)
 	{
 		fclose(log_output_file);
-		wait_and_exit();
+		wait_and_exit(1);
 	}
 	else
 	{
 		write_loginfo_to_file(log_output_file, loginfo, num_entries);
 		fclose(log_output_file);
+		printf("Logs saved to %s\n", LOG_OUTPUT_FILENAME);
 	}
-	if(!nowait_flag) wait_and_exit();
+	if(!nowait_flag) wait_and_exit(0);
 	
 	return 0;
 }
