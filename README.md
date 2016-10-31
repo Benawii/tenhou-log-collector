@@ -17,6 +17,6 @@ Usage: tenhoulogcollector [--nowait] [-d directory]
 
 Operating systems supported: Windows XP and higher.
 
-Simply download tenhoulogcollector.exe, move it to the desired directory, and run it.
+Simply download tenhoulogcollector.exe from the ![Releases](https://github.com/Benawii/tenhou-log-collector/releases) page, move it to the desired directory, and run it.
 
 Contact: hideki.nakeda@gmail.com
