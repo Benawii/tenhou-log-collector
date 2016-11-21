@@ -24,7 +24,7 @@
 #define CSV_HEADER_V2 "number,log_id,player1,player2,player3,player4,first_oya," \
 	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4,rank1_raw,rank1,rating1,date\n"
 #define CSV_HEADER_LEN 155
-#define LOG_ID_MAXLEN 37
+#define LOG_ID_MAXLEN 45
 #define PLAYER_NAME_MAXLEN 256
 
 #ifdef _WIN32
@@ -205,6 +205,7 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 	return loginfo;
 }
 
+//check if log already exists as an entry in the log output file
 int log_already_exists(struct loginfo_t *loginfo, int num_entries, 
 	struct loginfo_t *loginfo_entry)
 {
@@ -688,9 +689,10 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	int *num_entries, int *num_max_entries, int is_chrome)
 {
 	FILE *in;
-	char *p, *q, *buf;
+	char *p, *q, *buf, *end;
 	int file_size, bytes_read, error, num_new_logs;
 	struct loginfo_t loginfo_entry;
+	char end_char;
 	
 	if(*loginfo == NULL) return;
 
@@ -722,11 +724,20 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	num_new_logs = 0;
 	error = 0;
 	p = (char *)memmem(buf, bytes_read, "file=", 5);
-	while(p != NULL)
+	while(p != NULL && p < buf + bytes_read)
 	{
-		//log id
+		//delimit information about this game
 		p += 5;
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		end = (char *)memmem(p, buf + bytes_read - p, "file=", 5);
+		if(end != NULL)
+		{
+			end_char = *end;
+			*end = 0;
+		}
+		else
+			end = buf + bytes_read;
+		//log id
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > LOG_ID_MAXLEN)
 		{
 			error = 2;
@@ -737,7 +748,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		unescape_log_id(loginfo_entry.log_id, loginfo_entry.log_id);
 		if(log_already_exists(*loginfo, *num_entries, &loginfo_entry))
 		{
-			p = (char *)memmem(p, buf + bytes_read - p, "file=", 5);
+			if(end != NULL) *end = end_char;
+			p = end;
 			continue;
 		}
 
@@ -762,7 +774,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 			break;
 		}
 		p += 4;
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > PLAYER_NAME_MAXLEN)
 		{
 			error = 2;
@@ -779,7 +791,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 			break;
 		}
 		p += 4;
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > PLAYER_NAME_MAXLEN)
 		{
 			error = 2;
@@ -796,7 +808,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 			break;
 		}
 		p += 4;
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > PLAYER_NAME_MAXLEN)
 		{
 			error = 2;
@@ -807,13 +819,13 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		p = q + 1;
 
 		//player4
-		if(buf + bytes_read - p < 4 || strncmp(p, "un3=", 4) != 0)
+		if(end - p < 4 || strncmp(p, "un3=", 4) != 0)
 		{
 			error = 2;
 			break;
 		}
 		p += 4;
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > PLAYER_NAME_MAXLEN)
 		{
 			error = 2;
@@ -824,7 +836,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 
 		//first oya
 		p = q + 1;
-		if(buf + bytes_read - p < 5 || strncmp(p, "oya=", 4) != 0 || p[4] < '0' || p[4] > '3')
+		if(end - p < 5 || strncmp(p, "oya=", 4) != 0 || p[4] < '0' || p[4] > '3')
 		{
 			error = 2;
 			break;
@@ -834,7 +846,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		p += 2;
 
 		//game mode
-		if(buf + bytes_read - p < 6 || strncmp(p, "type=", 5) != 0)
+		if(end - p < 6 || strncmp(p, "type=", 5) != 0)
 		{
 			error = 2;
 			break;
@@ -847,7 +859,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		}
 
 		//scores
-		q = (char *)memchr(p, '&', buf + bytes_read - p);
+		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL)
 		{
 			//no scores (game did not complete)
@@ -863,7 +875,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		else
 		{
 			p = q + 1;
-			if(buf + bytes_read - p < 4 || strncmp(p, "sc=", 3) != 0)
+			if(end - p < 4 || strncmp(p, "sc=", 3) != 0)
 			{
 				error = 2;
 				break;
@@ -888,7 +900,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		(*loginfo)[*num_entries].rating1 = 0.0f;
 		(*num_entries)++;
 		num_new_logs++;
-		p = (char *)memmem(p, buf + bytes_read - p, "file=", 5);
+		if(end != NULL) *end = end_char;
+		p = end;
 	}
 	if(error == 0)
 		printf("%d new logs collected from Flash client%s\n", num_new_logs, 
@@ -965,7 +978,7 @@ void download_url_finalize(HINTERNET hSession, HINTERNET hConnect)
 	if(hSession) WinHttpCloseHandle(hSession);
 }
 
-//returns NULL or calls my_error if failed
+//returns NULL or calls print_error_and_exit if failed
 char *mk_download_url_persistent(HINTERNET hSession, HINTERNET hConnect, WCHAR *path, int *num_bytes_out)
 {
 	HINTERNET hRequest;
@@ -1139,30 +1152,93 @@ int extract_dan_and_rating_from_game_log(const char *mjlog_buf, struct loginfo_t
 	return 0;
 }
 
+void create_log_file_path(const char *log_id, const char *log_directory, int seat_index, char *path, size_t path_size)
+{
+	if(log_directory[strlen(log_directory) - 1] == '\\')
+		_snprintf_s(path, path_size, _TRUNCATE, "%s%s&tw=%d.mjlog", log_directory, log_id, seat_index);
+	else
+		_snprintf_s(path, path_size, _TRUNCATE, "%s\\%s&tw=%d.mjlog", log_directory, log_id, seat_index);
+}
+
 void write_mjlog_to_file(const char *mjlog_buf, const char *log_directory, 
 	const char *log_id, int seat_index)
 {
-	static char filename[1024];
+	static char path[1024];
 	FILE *out;
 	int len;
 
-	if(log_directory[strlen(log_directory) - 1] == '\\')
-		_snprintf_s(filename, ARRAYSIZE(filename), _TRUNCATE, "%s%s&tw=%d.mjlog", log_directory, log_id, seat_index);
-	else
-		_snprintf_s(filename, ARRAYSIZE(filename), _TRUNCATE, "%s\\%s&tw=%d.mjlog", log_directory, log_id, seat_index);
-	out = fopen(filename, "w");
-	if(out == NULL) print_error_and_exit("Cannot write to %s\n", filename);
+	create_log_file_path(log_id, log_directory, seat_index, path, ARRAYSIZE(path));
+	out = fopen(path, "w");
+	if(out == NULL) print_error_and_exit("Cannot write to %s\n", path);
 
 	len = strlen(mjlog_buf);
 	if(fwrite(mjlog_buf, sizeof(char), len, out) != len)
-		fprintf(stderr, "Error writing to %s\n", filename);
+		fprintf(stderr, "Error writing to %s\n", path);
 	fclose(out);
 }
 
-void get_loginfo_rank_rating(struct loginfo_t *loginfo, int num_entries, const char *log_directory)
+//check if mjlog file is already downloaded and saved to disk
+int log_file_exists(const char *log_id, const char *log_directory, int seat_index)
+{
+	static char path[1024];
+	FILE *f;
+
+	create_log_file_path(log_id, log_directory, seat_index, path, ARRAYSIZE(path));
+	f = fopen(path, "r");
+	if(f == NULL) return 0;
+	else
+	{
+		fclose(f);
+		return 1;
+	}
+}
+
+//PRE: file exists
+char *mk_file_to_buf(const char *filename)
+{
+	FILE *in;
+	HANDLE hFile;
+	LARGE_INTEGER filesize;
+	char *buf;
+	wchar_t *w_file_name;
+	size_t num_converted_chars, len;
+
+	len = strlen(filename);
+	w_file_name = (wchar_t *)malloc(sizeof(wchar_t) * (len + 1));
+	mbstowcs_s(&num_converted_chars, w_file_name, len + 1, filename, _TRUNCATE);
+	hFile = CreateFile(w_file_name, GENERIC_READ, FILE_SHARE_READ, 
+		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if(!GetFileSizeEx(hFile, &filesize))
+	{
+		fprintf(stderr, "Cannot read %s\n", filename);
+		CloseHandle(hFile);
+		return NULL;
+	}
+	CloseHandle(hFile);
+
+	if(filesize.QuadPart >= 1048576u)
+		print_error_and_exit("Error: %s is too large\n", filename);
+
+	buf = (char *)malloc(sizeof(char) * ((size_t)filesize.QuadPart + 1u));
+	buf[(size_t)filesize.QuadPart] = 0;
+	in = fopen(filename, "rb");
+	if(in == NULL) return NULL;
+	if(fread(buf, sizeof(char), (size_t)filesize.QuadPart, in) < (size_t)filesize.QuadPart)
+	{
+		fclose(in);
+		return NULL;
+	}
+	fclose(in);
+
+	return buf;
+}
+
+//returns nonzero in case of error, 0 otherwise
+int get_loginfo_rank_rating(struct loginfo_t *loginfo, int num_entries, const char *log_directory)
 {
 	int i, winhttp_inited, num_game_logs_downloaded;
 	char *mjlog_buf;
+	static char path[1024];
 
 	mjlog_buf = NULL;
 	winhttp_inited = 0;
@@ -1171,29 +1247,44 @@ void get_loginfo_rank_rating(struct loginfo_t *loginfo, int num_entries, const c
 	{
 		if(loginfo[i].rank1 == -1 || loginfo[i].rating1 == 0.0)
 		{
-			if(winhttp_inited == 0)
+			if(!log_file_exists(loginfo[i].log_id, log_directory, (4 - (loginfo[i].first_oya - 1)) % 4))
 			{
-				mk_download_mjlog(NULL, 0);//winhttp initialization
-				winhttp_inited = 1;
+				if(winhttp_inited == 0)
+				{
+					mk_download_mjlog(NULL, 0);//winhttp initialization
+					winhttp_inited = 1;
+				}
+				mjlog_buf = mk_download_mjlog(loginfo[i].log_id, 1);
+				if(mjlog_buf == NULL)
+				{
+					mk_download_mjlog(NULL, 2);//winhttp finalization
+					print_error_and_exit("Error downloading game log\n");
+				}
+				if(extract_dan_and_rating_from_game_log(mjlog_buf, &loginfo[i]) != 0)
+				{
+					mk_download_mjlog(NULL, 2);//winhttp finalization
+					print_error_and_exit("Invalid log format\n");
+				}
+				num_game_logs_downloaded++;
+				write_mjlog_to_file(mjlog_buf, log_directory, loginfo[i].log_id, (4 - (loginfo[i].first_oya - 1)) % 4);
+				free(mjlog_buf);
 			}
-			mjlog_buf = mk_download_mjlog(loginfo[i].log_id, 1);
-			if(mjlog_buf == NULL)
+			else
 			{
-				mk_download_mjlog(NULL, 2);//winhttp finalization
-				print_error_and_exit("Error downloading game log\n");
+				create_log_file_path(loginfo[i].log_id, log_directory, (4 - (loginfo[i].first_oya - 1)) % 4, path, ARRAYSIZE(path));
+				mjlog_buf = mk_file_to_buf(path);
+				if(mjlog_buf == NULL)
+					return -1;
+				if(extract_dan_and_rating_from_game_log(mjlog_buf, &loginfo[i]) != 0)
+					print_error_and_exit("Invalid log format\n");
+				free(mjlog_buf);
 			}
-			if(extract_dan_and_rating_from_game_log(mjlog_buf, &loginfo[i]) != 0)
-			{
-				mk_download_mjlog(NULL, 2);//winhttp finalization
-				print_error_and_exit("Invalid log format\n");
-			}
-			num_game_logs_downloaded++;
-			write_mjlog_to_file(mjlog_buf, log_directory, loginfo[i].log_id, (4 - (loginfo[i].first_oya - 1)) % 4);
-			free(mjlog_buf);
+			
 		}
 	}
 	if(winhttp_inited == 1) mk_download_mjlog(NULL, 2);//winhttp finalization
 	printf("%d game logs downloaded and saved in directory %s\n", num_game_logs_downloaded, log_directory);
+	return 0;
 }
 
 int main(int argc, char *argv[])
@@ -1224,16 +1315,18 @@ int main(int argc, char *argv[])
 		wait_and_exit(1);
 	else
 	{
-		get_loginfo_rank_rating(loginfo, num_entries, log_directory);
-		log_output_file = get_log_output_file(1);
-		if(log_output_file == NULL)
+		if(get_loginfo_rank_rating(loginfo, num_entries, log_directory) == 0)
 		{
-			fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
-			wait_and_exit(1);
+			log_output_file = get_log_output_file(1);
+			if(log_output_file == NULL)
+			{
+				fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
+				wait_and_exit(1);
+			}
+			write_loginfo_to_file(log_output_file, loginfo, num_entries);
+			fclose(log_output_file);
+			printf("Logs saved to %s\n", LOG_OUTPUT_FILENAME);
 		}
-		write_loginfo_to_file(log_output_file, loginfo, num_entries);
-		fclose(log_output_file);
-		printf("Logs saved to %s\n", LOG_OUTPUT_FILENAME);
 	}
 	if(!nowait_flag) wait_and_exit(0);
 	
