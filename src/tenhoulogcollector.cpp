@@ -23,7 +23,9 @@
 	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4\n"
 #define CSV_HEADER_V2 "number,log_id,player1,player2,player3,player4,first_oya," \
 	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4,rank1_raw,rank1,rating1,date\n"
-#define CSV_HEADER_LEN 155
+#define CSV_HEADER_V3 "number,log_id,player1,player2,player3,player4,first_oya," \
+	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4,rank1_raw,rank1,rating1,date,placement\n"
+#define CSV_HEADER_LEN 165
 #define LOG_ID_MAXLEN 45
 #define PLAYER_NAME_MAXLEN 256
 
@@ -63,6 +65,8 @@ int check_log_output_file_format(FILE *log_output_file)
 		return 1;//version 1
 	if(strcmp(buf, CSV_HEADER_V2) == 0)
 		return 2;//version 2
+	if(strcmp(buf, CSV_HEADER_V3) == 0)
+		return 3;//version 3
 
 	return 0;//invalid header
 }
@@ -507,6 +511,15 @@ char *rank_to_str(int rank)
 	}
 }
 
+int get_placement(const struct loginfo_t *loginfo)
+{
+	if(loginfo->player_names[3][0] == 0)//3-player Mahjong
+		return 1 + (loginfo->points[1] > loginfo->points[0]) + (loginfo->points[2] > loginfo->points[0]);
+	else//4-player Mahjong
+		return 1 + (loginfo->points[1] > loginfo->points[0]) + (loginfo->points[2] > loginfo->points[0]) + 
+			(loginfo->points[3] > loginfo->points[0]);
+}
+
 void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo, 
 	int num_entries)
 {
@@ -514,13 +527,13 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 
 	//sort by log id (based on timestamp)
 	qsort(loginfo, num_entries, sizeof(loginfo[0]), loginfo_t_sf);
-	fputs(CSV_HEADER_V2, log_output_file);
+	fputs(CSV_HEADER_V3, log_output_file);
 	for(i = 0; i < num_entries; i++)
-		fprintf(log_output_file, "%d,%s,%s,%s,%s,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%s,%f,%.8s\n", i + 1, loginfo[i].log_id, 
+		fprintf(log_output_file, "%d,%s,%s,%s,%s,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%s,%f,%.8s,%d\n", i + 1, loginfo[i].log_id, 
 			loginfo[i].player_names[0], loginfo[i].player_names[1], loginfo[i].player_names[2], loginfo[i].player_names[3], 
 			loginfo[i].first_oya, loginfo[i].game_mode, loginfo[i].points[0], loginfo[i].points[1], loginfo[i].points[2], 
 			loginfo[i].points[3], loginfo[i].scores[0], loginfo[i].scores[1], loginfo[i].scores[2], loginfo[i].scores[3], 
-			loginfo[i].rank1, rank_to_str(loginfo[i].rank1), loginfo[i].rating1, loginfo[i].log_id);
+			loginfo[i].rank1, rank_to_str(loginfo[i].rank1), loginfo[i].rating1, loginfo[i].log_id, get_placement(&loginfo[i]));
 }
 
 #ifdef _WIN32
