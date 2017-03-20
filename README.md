@@ -1,4 +1,4 @@
-#tenhou-log-collector
+# tenhou-log-collector
 
 A tool for collecting log links and downloading actual log files from Tenhou's Mahjong clients.
 
@@ -6,7 +6,7 @@ Tenhou's flash clients only store game links of 20 most recent games. This tool 
 
 The log collector will look for logs in Flash's local storage as well as Windows client's directory. It does not work for the HTML client. Collected game links are stored in the file logs.csv, in the same directory as the tool. This file can be opened by Excel or any text editor such as Notepad. Downloaded log files are stored in the directory "mjlog" by default.
 
-The logs.csv file contains your rank and rating, among other things, so you can make pretty plots like this: 
+The logs.csv file contains your rank and rating, among other things, so you can make graphs like this: 
 ![](https://github.com/Benawii/tenhou-log-collector/blob/master/sample/sample_rating_plot.png?raw=true)
 
 ```
