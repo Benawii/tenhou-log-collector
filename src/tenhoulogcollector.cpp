@@ -609,7 +609,7 @@ void convert_UTF8_to_ASCII(const char *source, char *dest, int dest_size)
 	j = 0;
 	for(i = 0; source[i] != 0 && j < dest_size - 1; i++)
 	{
-		if(is_ASCII(source[i]) && source[i] != '%')
+		if(is_ASCII(source[i]) && source[i] != '%' && source[i] != ',' && source[i] != '"')
 		{
 			dest[j] = source[i];
 			j++;
