@@ -54,6 +54,9 @@ struct loginfo_t {
 	float rating1;
 };
 
+//encoding: 0=ASCII, 1=UTF8; source_encoding and dest_encoding can be the same
+void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding);
+
 //returns format version if format is correct, 0 otherwise
 //will move file position to the second line
 int check_log_output_file_format(FILE *log_output_file, int *encoding_out)
@@ -250,8 +253,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 	FILE *in;
 	const char *userprofile;
 	char *path, *p, *q;
-	int path_size, found, error, num_new_logs, n, ct;
-	static char buf[LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256];
+	int path_size, found, error, num_new_logs, n, ct, i;
+	static char buf[LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256], name_buf[PLAYER_NAME_MAXLEN + 1];
 	struct loginfo_t loginfo_entry;
 
 	if(*loginfo == NULL) return;
@@ -445,6 +448,14 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 			}
 			(*loginfo)[*num_entries].rank1 = -1;
 			(*loginfo)[*num_entries].rating1 = 0.0f;
+			if((*loginfo)->encoding == 1)
+			{
+				for(i = 0; i < 4; i++)
+				{
+					strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)[*num_entries].player_names[i]);
+					convert_encoding(name_buf, 0, (*loginfo)[*num_entries].player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding);
+				}
+			}
 			(*num_entries)++;
 			num_new_logs++;
 		}
@@ -839,7 +850,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 {
 	FILE *in;
 	char *p, *q, *buf, *end;
-	int file_size, bytes_read, error, num_new_logs;
+	int file_size, bytes_read, error, num_new_logs, i;
+	static char name_buf[PLAYER_NAME_MAXLEN + 1];
 	struct loginfo_t loginfo_entry;
 	char end_char;
 	
@@ -1047,6 +1059,14 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		}
 		(*loginfo)[*num_entries].rank1 = -1;
 		(*loginfo)[*num_entries].rating1 = 0.0f;
+		if((*loginfo)->encoding == 1)
+		{
+			for(i = 0; i < 4; i++)
+			{
+				strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)->player_names[i]);
+				convert_encoding(name_buf, 0, (*loginfo)->player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding);
+			}
+		}
 		(*num_entries)++;
 		num_new_logs++;
 		if(end != NULL) *end = end_char;
