@@ -17,6 +17,7 @@
 #include <dirent.h>
 #endif
 
+#define UTF8_BOM_STR "\xEF\xBB\xBF"
 #define LOG_OUTPUT_FILENAME "logs.csv"
 #define CONFIG_INI_PATH "\\AppData\\Local\\C-EGG\\tenhou\\130\\config.ini"
 #define CSV_HEADER_V1 "number,log_id,player1,player2,player3,player4,first_oya," \
@@ -25,7 +26,7 @@
 	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4,rank1_raw,rank1,rating1,date\n"
 #define CSV_HEADER_V3 "number,log_id,player1,player2,player3,player4,first_oya," \
 	"game_mode,points1,points2,points3,points4,score1,score2,score3,score4,rank1_raw,rank1,rating1,date,placement\n"
-#define CSV_HEADER_LEN 165
+#define MAX_CSV_HEADER_LEN 168
 #define LOG_ID_MAXLEN 45
 #define PLAYER_NAME_MAXLEN 256
 
@@ -41,6 +42,7 @@
 #endif
 
 struct loginfo_t {
+	int encoding;//0=ASCII, 1=UTF-8
 	char log_id[LOG_ID_MAXLEN + 1];//null terminated
 	char player_names[4][PLAYER_NAME_MAXLEN + 1];
 	int first_oya;
@@ -54,18 +56,28 @@ struct loginfo_t {
 
 //returns format version if format is correct, 0 otherwise
 //will move file position to the second line
-int check_log_output_file_format(FILE *log_output_file)
+int check_log_output_file_format(FILE *log_output_file, int *encoding_out)
 {
-	static char buf[CSV_HEADER_LEN + 1];
+	static char buf[MAX_CSV_HEADER_LEN + 1], *p;
 
-	if(fgets(buf, CSV_HEADER_LEN + 1, log_output_file) == NULL)
+	if(fgets(buf, MAX_CSV_HEADER_LEN + 1, log_output_file) == NULL)
 		return 0;
 
-	if(strcmp(buf, CSV_HEADER_V1) == 0)
+	if(strlen(buf) >= 3 && strncmp(buf, UTF8_BOM_STR, 3) == 0)
+	{
+		*encoding_out = 1;//UTF-8
+		p = buf + 3;
+	}
+	else
+	{
+		*encoding_out = 0;//ASCII
+		p = buf;
+	}
+	if(strcmp(p, CSV_HEADER_V1) == 0)
 		return 1;//version 1
-	if(strcmp(buf, CSV_HEADER_V2) == 0)
+	if(strcmp(p, CSV_HEADER_V2) == 0)
 		return 2;//version 2
-	if(strcmp(buf, CSV_HEADER_V3) == 0)
+	if(strcmp(p, CSV_HEADER_V3) == 0)
 		return 3;//version 3
 
 	return 0;//invalid header
@@ -101,7 +113,7 @@ FILE *get_log_output_file(int mode)
 //return 1 for success, 0 for failure
 int csvline_to_loginfo(const char *buf, struct loginfo_t *loginfo)
 {
-	int i;
+	int i, quotes;
 	const char *p, *q;
 	static char buf2[512];
 
@@ -119,13 +131,23 @@ int csvline_to_loginfo(const char *buf, struct loginfo_t *loginfo)
 	p = q + 1;
 	for(i = 0; i < 4; i++)
 	{
-		q = strchr(p, ',');
+		if(*p == '"')
+		{
+			p++;
+			q = strchr(p, '"');
+			quotes = 1;
+		}
+		else
+		{
+			q = strchr(p, ',');
+			quotes = 0;
+		}
 		if(q == NULL || q - p > PLAYER_NAME_MAXLEN)
 			return 0;
 
 		memcpy(loginfo->player_names[i], p, q - p);
 		loginfo->player_names[i][q - p] = 0;
-		p = q + 1;
+		p = q + 1 + quotes;
 	}
 	//try format version 2 first
 	if(sscanf(p, "%d,%d,%f,%f,%f,%f,%d,%d,%d,%d,%d,%511s", &loginfo->first_oya, 
@@ -172,7 +194,7 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 		return NULL;
 	}
 
-	if(check_log_output_file_format(log_output_file) == 0)
+	if(check_log_output_file_format(log_output_file, &loginfo->encoding) == 0)
 	{
 		fprintf(stderr, "Error: existing %s is not in the correct format\n", LOG_OUTPUT_FILENAME);
 		return NULL;
@@ -520,20 +542,142 @@ int get_placement(const struct loginfo_t *loginfo)
 			(loginfo->points[3] > loginfo->points[0]);
 }
 
+//returns -1 for error
+int hex_char_to_int(char c)
+{
+	if(c >= '0' && c <= '9') return (int)(c - '0');
+	if(c >= 'A' && c <= 'F') return (int)(c - 'A') + 10;
+	if(c >= 'a' && c <= 'f') return (int)(c - 'a') + 10;
+
+	return -1;//error
+}
+
+//PRE: 0 <= n < 16
+char int_to_hex_char(int n)
+{
+	if(n >= 0 && n < 10) return n + '0';
+	if(n >= 10 && n < 16) return n - 10 + 'A';
+
+	return 0;//error
+}
+
+void convert_ASCII_to_UTF8(const char *source, char *dest, int dest_size)
+{
+	int src_len, i, j, t;
+
+	src_len = strlen(source);
+	i = 0;
+	j = 0;
+	while(i < src_len && j < dest_size - 1)
+	{
+		if(source[i] == '%')//UTF8 char
+		{
+			if(i + 2 >= src_len) goto fail;
+
+			t = hex_char_to_int(source[i + 1]);
+			if(t < 0) goto fail;
+			dest[j] = t * 16;
+			t = hex_char_to_int(source[i + 2]);
+			if(t < 0) goto fail;
+			dest[j] += t;
+			i += 3;
+			j++;
+			continue;
+
+fail:		printf("Error: invalid player name %s\n", source);
+			break;
+		}
+		else//ASCII char
+		{
+			dest[j] = source[i];
+			i++;
+			j++;
+		}
+	}
+	dest[j] = 0;//null terminator
+}
+
+int is_ASCII(char c)
+{
+	return (((int)c & 0x80) == 0);
+}
+
+void convert_UTF8_to_ASCII(const char *source, char *dest, int dest_size)
+{
+	int i, j;
+
+	j = 0;
+	for(i = 0; source[i] != 0 && j < dest_size - 1; i++)
+	{
+		if(is_ASCII(source[i]) && source[i] != '%')
+		{
+			dest[j] = source[i];
+			j++;
+		}
+		else
+		{
+			if(j + 2 >= dest_size - 1) break;//out of space for dest
+
+			dest[j] = '%';
+			dest[j + 1] = int_to_hex_char((unsigned char)source[i] / 16);
+			dest[j + 2] = int_to_hex_char((unsigned char)source[i] % 16);
+			j += 3;
+		}
+	}
+	dest[j] = 0;//null terminator
+}
+
+void enclose_string_in_quotes(char *s, int s_size)
+{
+	int len;
+
+	len = min(strlen(s), s_size - 3);
+	memmove(s + 1, s, len);
+	s[0] = '"';
+	s[len + 1] = '"';
+	s[len + 2] = 0;//null terminator
+}
+
+//encoding: 0=ASCII, 1=UTF8; source_encoding and dest_encoding can be the same
+void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding)
+{
+	if(source_encoding == dest_encoding)
+		strcpy_s(dest, dest_size, source);
+	else
+	{
+		if(source_encoding == 0)//ASCII -> UTF-8
+			convert_ASCII_to_UTF8(source, dest, dest_size);
+		else//UTF-8 -> ASCII
+			convert_UTF8_to_ASCII(source, dest, dest_size);
+	}
+
+	//if string contains comma, enclose it in quotes
+	if(strchr(dest, ',') != NULL)
+		enclose_string_in_quotes(dest, dest_size);
+}
+
 void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo, 
-	int num_entries)
+	int num_entries, int use_UTF8_BOM)
 {
 	int i;
+	static char name_buffers[4][PLAYER_NAME_MAXLEN + 1];
 
 	//sort by log id (based on timestamp)
 	qsort(loginfo, num_entries, sizeof(loginfo[0]), loginfo_t_sf);
+	if(use_UTF8_BOM) fputs(UTF8_BOM_STR, log_output_file);
 	fputs(CSV_HEADER_V3, log_output_file);
 	for(i = 0; i < num_entries; i++)
-		fprintf(log_output_file, "%d,%s,%s,%s,%s,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%s,%f,%.8s,%d\n", i + 1, loginfo[i].log_id, 
-			loginfo[i].player_names[0], loginfo[i].player_names[1], loginfo[i].player_names[2], loginfo[i].player_names[3], 
+	{
+		convert_encoding(loginfo[i].player_names[0], loginfo->encoding, name_buffers[0], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
+		convert_encoding(loginfo[i].player_names[1], loginfo->encoding, name_buffers[1], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
+		convert_encoding(loginfo[i].player_names[2], loginfo->encoding, name_buffers[2], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
+		convert_encoding(loginfo[i].player_names[3], loginfo->encoding, name_buffers[3], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
+		fprintf(log_output_file, "%d,%s,%s,%s,%s,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%s,%f,%.8s,%d\n", 
+			i + 1, loginfo[i].log_id, name_buffers[0], name_buffers[1], name_buffers[2], name_buffers[3], 
 			loginfo[i].first_oya, loginfo[i].game_mode, loginfo[i].points[0], loginfo[i].points[1], loginfo[i].points[2], 
 			loginfo[i].points[3], loginfo[i].scores[0], loginfo[i].scores[1], loginfo[i].scores[2], loginfo[i].scores[3], 
 			loginfo[i].rank1, rank_to_str(loginfo[i].rank1), loginfo[i].rating1, loginfo[i].log_id, get_placement(&loginfo[i]));
+	}
 }
 
 #ifdef _WIN32
@@ -667,14 +811,6 @@ void *memmem(const void *haystack, size_t haystacklen, const void *needle,
 	}
 }
 #endif
-
-int hex_char_to_int(char c)
-{
-	if(c >= '0' && c <= '9') return c - '0';
-	if(c >= 'A' && c <= 'F') return c - 'A' + 10;
-	if(c >= 'a' && c <= 'f') return c - 'a' + 10;
-	return 0;
-}
 
 void unescape_log_id(char *dest, char *source)
 {
@@ -941,6 +1077,24 @@ char *get_log_directory(int argc, char *argv[])
 	return "mjlog";
 }
 
+void print_usage()
+{
+	printf("Usage: tenhoulogcollector [--nowait] [-d directory] [--ascii]\n"
+		"\t--nowait          Do not require the user to press a key at the end of the program\n"
+		"\t-d, --directory   Specify directory to store the log files (default: \"mjlog\")\n"
+		"\t--ascii           Use ASCII encoding for the logs.csv file instead of the default UTF-8\n");
+}
+
+//returns 1 if flag is set, 0 otherwise
+int get_usage_arg_flag(int argc, char *argv[])
+{
+	int i;
+
+	for(i = 1; i < argc; i++)
+		if(strcmp(argv[i], "/\?") == 0 || strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) return 1;
+	return 0;
+}
+
 //returns 1 if flag is set, 0 otherwise
 int get_nowait_arg_flag(int argc, char *argv[])
 {
@@ -949,6 +1103,16 @@ int get_nowait_arg_flag(int argc, char *argv[])
 	for(i = 1; i < argc; i++)
 		if(strcmp(argv[i], "/nowait") == 0 || strcmp(argv[i], "--nowait") == 0) return 1;
 	return 0;
+}
+
+//returns 0 for ASCII, 1 for UTF8
+int get_UTF8_arg_flag(int argc, char *argv[])
+{
+	int i;
+
+	for(i = 1; i < argc; i++)
+		if(strcmp(argv[i], "/ascii") == 0 || strcmp(argv[i], "--ascii") == 0) return 0;
+	return 1;//default is UTF8
 }
 
 //returns 1 if the directory already exists or is created successfully, 0 otherwise
@@ -1304,10 +1468,17 @@ int main(int argc, char *argv[])
 {
 	FILE *log_output_file;
 	struct loginfo_t *loginfo;
-	int num_entries, loginfo_maxsize, nowait_flag;
+	int num_entries, loginfo_maxsize, nowait_flag, UTF8_flag, usage_flag;
 	const char *log_directory;
 
+	usage_flag = get_usage_arg_flag(argc, argv);
+	if(usage_flag)
+	{
+		print_usage();
+		return 0;
+	}
 	nowait_flag = get_nowait_arg_flag(argc, argv);
+	UTF8_flag = get_UTF8_arg_flag(argc, argv);
 	log_directory = get_log_directory(argc, argv);
 	create_log_directory(log_directory);
 	log_output_file = get_log_output_file(0);
@@ -1336,7 +1507,7 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
 				wait_and_exit(1);
 			}
-			write_loginfo_to_file(log_output_file, loginfo, num_entries);
+			write_loginfo_to_file(log_output_file, loginfo, num_entries, UTF8_flag);
 			fclose(log_output_file);
 			printf("Logs saved to %s\n", LOG_OUTPUT_FILENAME);
 		}
