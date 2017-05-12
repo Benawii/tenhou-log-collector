@@ -54,8 +54,10 @@ struct loginfo_t {
 	float rating1;
 };
 
+void print_error_and_exit(char *s,...);
+
 //encoding: 0=ASCII, 1=UTF8; source_encoding and dest_encoding can be the same
-void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding);
+void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding, int final);
 
 //returns format version if format is correct, 0 otherwise
 //will move file position to the second line
@@ -88,7 +90,7 @@ int check_log_output_file_format(FILE *log_output_file, int *encoding_out)
 
 //mode = 0 for read, 1 for write
 //create the file if it does not exist
-FILE *get_log_output_file(int mode)
+FILE *get_log_output_file(int mode, int use_UTF8_BOM)
 {
 	FILE *log_output_file;
 
@@ -101,7 +103,8 @@ FILE *get_log_output_file(int mode)
 			log_output_file = fopen(LOG_OUTPUT_FILENAME, "w");
 			if(log_output_file == NULL) return NULL;//cannot open file
 
-			fputs(CSV_HEADER_V2, log_output_file);
+			if(use_UTF8_BOM) fputs(UTF8_BOM_STR, log_output_file);
+			fputs(CSV_HEADER_V3, log_output_file);
 			fclose(log_output_file);
 			log_output_file = fopen(LOG_OUTPUT_FILENAME, "r");
 			if(log_output_file == NULL) return NULL;//cannot open file
@@ -111,6 +114,41 @@ FILE *get_log_output_file(int mode)
 		return fopen(LOG_OUTPUT_FILENAME, "w");
 
 	return log_output_file;
+}
+
+//convert "" to "
+void unescape_quotes(char *s, int s_size)
+{
+	int i, j;
+
+	j = 0;
+	for(i = 0; ;)
+	{
+		if(s[i] == '"')
+		{
+			if(s[i + 1] == '"')
+			{
+				s[j] = '"';
+				i += 2;
+			}
+			else//error
+			{
+				s[j] = '"';
+				i++;
+			}
+		}
+		else
+		{
+			if(s[i] == 0)
+			{
+				s[j] = 0;//null terminator
+				return;
+			}
+			s[j] = s[i];
+			i++;
+		}
+		j++;
+	}
 }
 
 //return 1 for success, 0 for failure
@@ -137,7 +175,7 @@ int csvline_to_loginfo(const char *buf, struct loginfo_t *loginfo)
 		if(*p == '"')
 		{
 			p++;
-			q = strchr(p, '"');
+			q = strstr(p, "\",");
 			quotes = 1;
 		}
 		else
@@ -150,6 +188,7 @@ int csvline_to_loginfo(const char *buf, struct loginfo_t *loginfo)
 
 		memcpy(loginfo->player_names[i], p, q - p);
 		loginfo->player_names[i][q - p] = 0;
+		if(quotes) unescape_quotes(loginfo->player_names[i], PLAYER_NAME_MAXLEN + 1);
 		p = q + 1 + quotes;
 	}
 	//try format version 2 first
@@ -453,7 +492,8 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 				for(i = 0; i < 4; i++)
 				{
 					strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)[*num_entries].player_names[i]);
-					convert_encoding(name_buf, 0, (*loginfo)[*num_entries].player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding);
+					convert_encoding(name_buf, 0, (*loginfo)[*num_entries].player_names[i], PLAYER_NAME_MAXLEN + 1, 
+						(*loginfo)->encoding, 0);
 				}
 			}
 			(*num_entries)++;
@@ -638,19 +678,42 @@ void convert_UTF8_to_ASCII(const char *source, char *dest, int dest_size)
 	dest[j] = 0;//null terminator
 }
 
+//also escape quote characters to two quote characters
 void enclose_string_in_quotes(char *s, int s_size)
 {
-	int len;
+	int i, j;
+	char *original;
 
-	len = min(strlen(s), s_size - 3);
-	memmove(s + 1, s, len);
+	original = (char *)malloc(sizeof(char) * (strlen(s) + 1));
+	if(original == NULL) print_error_and_exit("Error: out of memory\n");
+	strcpy(original, s);
+
 	s[0] = '"';
-	s[len + 1] = '"';
-	s[len + 2] = 0;//null terminator
+	i = 0;
+	j = 1;
+	while(original[i] != 0 && j + 2 < s_size)
+	{
+		if(original[i] == '"')
+		{
+			if(j + 3 >= s_size) break;//not enough space
+			s[j] = '"';
+			s[j + 1] = '"';
+			j += 2;
+		}
+		else
+		{
+			s[j] = original[i];
+			j++;
+		}
+		i++;
+	}
+	s[j] = '"';
+	s[j + 1] = 0;//null terminator
 }
 
 //encoding: 0=ASCII, 1=UTF8; source_encoding and dest_encoding can be the same
-void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding)
+void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, 
+	int dest_encoding, int final)
 {
 	if(source_encoding == dest_encoding)
 		strcpy_s(dest, dest_size, source);
@@ -662,8 +725,8 @@ void convert_encoding(const char *source, int source_encoding, char *dest, int d
 			convert_UTF8_to_ASCII(source, dest, dest_size);
 	}
 
-	//if string contains comma, enclose it in quotes
-	if(strchr(dest, ',') != NULL)
+	//if string contains comma or quotes, enclose it in quotes and escape the quotes
+	if(final && (strchr(dest, ',') != NULL || strchr(dest, '"') != NULL))
 		enclose_string_in_quotes(dest, dest_size);
 }
 
@@ -679,10 +742,10 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 	fputs(CSV_HEADER_V3, log_output_file);
 	for(i = 0; i < num_entries; i++)
 	{
-		convert_encoding(loginfo[i].player_names[0], loginfo->encoding, name_buffers[0], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
-		convert_encoding(loginfo[i].player_names[1], loginfo->encoding, name_buffers[1], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
-		convert_encoding(loginfo[i].player_names[2], loginfo->encoding, name_buffers[2], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
-		convert_encoding(loginfo[i].player_names[3], loginfo->encoding, name_buffers[3], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM);
+		convert_encoding(loginfo[i].player_names[0], loginfo->encoding, name_buffers[0], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM, 1);
+		convert_encoding(loginfo[i].player_names[1], loginfo->encoding, name_buffers[1], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM, 1);
+		convert_encoding(loginfo[i].player_names[2], loginfo->encoding, name_buffers[2], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM, 1);
+		convert_encoding(loginfo[i].player_names[3], loginfo->encoding, name_buffers[3], PLAYER_NAME_MAXLEN + 1, use_UTF8_BOM, 1);
 		fprintf(log_output_file, "%d,%s,%s,%s,%s,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%s,%f,%.8s,%d\n", 
 			i + 1, loginfo[i].log_id, name_buffers[0], name_buffers[1], name_buffers[2], name_buffers[3], 
 			loginfo[i].first_oya, loginfo[i].game_mode, loginfo[i].points[0], loginfo[i].points[1], loginfo[i].points[2], 
@@ -1064,7 +1127,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 			for(i = 0; i < 4; i++)
 			{
 				strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)->player_names[i]);
-				convert_encoding(name_buf, 0, (*loginfo)->player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding);
+				convert_encoding(name_buf, 0, (*loginfo)->player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding, 0);
 			}
 		}
 		(*num_entries)++;
@@ -1501,7 +1564,8 @@ int main(int argc, char *argv[])
 	UTF8_flag = get_UTF8_arg_flag(argc, argv);
 	log_directory = get_log_directory(argc, argv);
 	create_log_directory(log_directory);
-	log_output_file = get_log_output_file(0);
+	//create/read current log output file
+	log_output_file = get_log_output_file(0, UTF8_flag);
 	if(log_output_file == NULL)
 	{
 		fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
@@ -1521,7 +1585,8 @@ int main(int argc, char *argv[])
 	{
 		if(get_loginfo_rank_rating(loginfo, num_entries, log_directory) == 0)
 		{
-			log_output_file = get_log_output_file(1);
+			//open log output file for writing
+			log_output_file = get_log_output_file(1, UTF8_flag);
 			if(log_output_file == NULL)
 			{
 				fprintf(stderr, "Error: cannot open %s. Is the file currently opened by another program?\n", LOG_OUTPUT_FILENAME);
