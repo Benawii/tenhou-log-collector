@@ -232,13 +232,13 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 	loginfo = (struct loginfo_t *)malloc(sizeof(struct loginfo_t) * loginfo_maxsize);
 	if(loginfo == NULL)
 	{
-		fprintf(stderr, "Error: not enough memory\n");
+		fprintf(stderr, "Error: out of memory\n");
 		return NULL;
 	}
 
 	if(check_log_output_file_format(log_output_file, &loginfo->encoding) == 0)
 	{
-		fprintf(stderr, "Error: existing %s is not in the correct format\n", LOG_OUTPUT_FILENAME);
+		fprintf(stderr, "Error: Existing %s is not in the correct format\n", LOG_OUTPUT_FILENAME);
 		return NULL;
 	}
 
@@ -253,14 +253,14 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 				loginfo_maxsize);
 			if(loginfo == NULL)
 			{
-				fprintf(stderr, "Error: not enough memory\n");
+				fprintf(stderr, "Error: out of memory\n");
 				return NULL;
 			}
 		}
 
 		if(csvline_to_loginfo(buf, &loginfo[num_entries]) == 0)
 		{
-			fprintf(stderr, "Error: cannot parse entry %d in log output file\n", 
+			fprintf(stderr, "Error: Cannot parse entry %d in log output file\n", 
 				num_entries + 1);
 			free(loginfo);
 			return NULL;
@@ -298,13 +298,28 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 
 	if(*loginfo == NULL) return;
 
+	printf("Collecting logs from Windows client\n");
 	userprofile = getenv("USERPROFILE");
+	if(userprofile == NULL)
+	{
+		fprintf(stderr, "Error: Cannot get user profile environment variable\n");
+		return;
+	}
 	path_size = strlen(userprofile) + strlen(CONFIG_INI_PATH) + 1;
 	path = (char *)malloc(sizeof(int) * path_size);
+	if(path == NULL)
+	{
+		fprintf(stderr, "Error: out of memory\n");
+		return;
+	}
 	sprintf(path, "%s%s", userprofile, CONFIG_INI_PATH);
 	in = fopen(path, "r");
 	free(path);
-	if(in == NULL) return;//file does not exist
+	if(in == NULL)
+	{
+		printf("Windows client not found\n");
+		return;
+	}
 
 	//look for "[LOG]" line
 	found = 0;
@@ -502,11 +517,11 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 		if(error == 0)
 			printf("%d new game logs collected from Windows client\n", num_new_logs);
 		else if(error == 1)
-			fprintf(stderr, "Error: not enough memory\n");
+			fprintf(stderr, "Error: out of memory\n");
 		else if(error == 2)
 		{
 			*loginfo = NULL;
-			fprintf(stderr, "Error: cannot parse Windows client's log links\n");
+			fprintf(stderr, "Error: Cannot parse Windows client's log links\n");
 		}
 	}
 	fclose(in);
@@ -765,11 +780,21 @@ FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 	WIN32_FIND_DATA find_data;
 
 	userprofile = _wgetenv(L"USERPROFILE");
+	if(userprofile == NULL)
+	{
+		fprintf(stderr, "Error: Cannot get user profile environment variable\n");
+		return NULL;
+	}
 	if(!is_chrome)
 		path_size = wcslen(userprofile) + wcslen(FLASH_STORAGE_PATH) + 27 + 1;
 	else
 		path_size = wcslen(userprofile) + wcslen(FLASH_STORAGE_PATH_CHROME) + 27 + 1;
 	path = (wchar_t *)malloc(sizeof(wchar_t) * path_size);
+	if(path == NULL)
+	{
+		fprintf(stderr, "Error: out of memory\n");
+		return NULL;
+	}
 	if(!is_chrome)
 		swprintf(path, path_size, L"%s%s\\*", userprofile, FLASH_STORAGE_PATH);
 	else
@@ -793,9 +818,11 @@ FILE *get_flash_storage_file(int *file_size_out, int is_chrome)
 	if(rt == 0) return NULL;//no directory found
 
 	swprintf(path, path_size, L"%s%s\\%s\\mjv.jp\\mjinfo.sol", userprofile, 
-		FLASH_STORAGE_PATH, find_data.cFileName);
+		is_chrome ? FLASH_STORAGE_PATH_CHROME : FLASH_STORAGE_PATH, find_data.cFileName);
 	in = _wfopen(path, L"rb");
+	if(in == NULL) return NULL;
 	
+	//get file size
 	hFile = CreateFile(path, GENERIC_READ, FILE_SHARE_READ, 
 		NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	*file_size_out = GetFileSize(hFile, NULL);
@@ -920,8 +947,13 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	
 	if(*loginfo == NULL) return;
 
+	printf("Collecting logs from flash client on %s\n", is_chrome ? "Google Chrome" : "non-Chrome browser");
 	in = get_flash_storage_file(&file_size, is_chrome);
-	if(in == NULL) return;//file does not exist
+	if(in == NULL)
+	{
+		printf("No flash storage file\n");
+		return;
+	}
 
 	buf = (char *)malloc(sizeof(char) * (file_size + 1024));
 	if(buf == NULL)
@@ -1136,8 +1168,8 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		p = end;
 	}
 	if(error == 0)
-		printf("%d new logs collected from Flash client%s\n", num_new_logs, 
-			is_chrome ? " on Google Chrome" : "");
+		printf("%d new logs collected from Flash client on %s\n", num_new_logs, 
+			is_chrome ? "Google Chrome" : "non-Chrome browser");
 	else if(error == 1)
 		fprintf(stderr, "Error: not enough memory\n");
 	if(error == 2)
