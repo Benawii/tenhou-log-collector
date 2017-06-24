@@ -1158,8 +1158,9 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		{
 			for(i = 0; i < 4; i++)
 			{
-				strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)->player_names[i]);
-				convert_encoding(name_buf, 0, (*loginfo)->player_names[i], PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding, 0);
+				strcpy_s(name_buf, PLAYER_NAME_MAXLEN + 1, (*loginfo)[*num_entries].player_names[i]);
+				convert_encoding(name_buf, 0, (*loginfo)[*num_entries].player_names[i], 
+					PLAYER_NAME_MAXLEN + 1, (*loginfo)->encoding, 0);
 			}
 		}
 		(*num_entries)++;
