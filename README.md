@@ -10,10 +10,11 @@ The logs.csv file contains your rank and rating, among other things, so you can 
 ![](https://github.com/Benawii/tenhou-log-collector/blob/master/sample/sample_rating_plot.png?raw=true)
 
 ```
-Usage: tenhoulogcollector [--nowait] [-d directory] [--ascii]
+Usage: tenhoulogcollector [--nowait] [-d directory] [--ascii] [--debug]
 	--nowait          Do not require the user to press a key at the end of the program
 	-d, --directory   Specify directory to store the log files (default: "mjlog")
 	--ascii           Use ASCII encoding for the logs.csv file instead of the default UTF-8
+	--debug           Write debugging information to debug.log
 ```
 
 Operating systems supported: Windows XP and higher.
