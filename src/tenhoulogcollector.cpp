@@ -54,7 +54,24 @@ struct loginfo_t {
 	float rating1;
 };
 
+FILE *debug_log_file;
+int debug_flag;
+
 void print_error_and_exit(char *s,...);
+
+void print_debug_info(const char *s, ...)
+{
+	va_list arguments;
+
+	va_start(arguments, s);
+	if(debug_flag)
+	{
+		
+		vfprintf(debug_log_file, s, arguments);
+		fflush(debug_log_file);
+	}
+	va_end(arguments);
+}
 
 //encoding: 0=ASCII, 1=UTF8; source_encoding and dest_encoding can be the same
 void convert_encoding(const char *source, int source_encoding, char *dest, int dest_size, int dest_encoding, int final);
@@ -228,6 +245,7 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 	struct loginfo_t *loginfo;
 	int loginfo_maxsize, num_entries;
 
+	print_debug_info("Reading log output\n");
 	loginfo_maxsize = 256;
 	loginfo = (struct loginfo_t *)malloc(sizeof(struct loginfo_t) * loginfo_maxsize);
 	if(loginfo == NULL)
@@ -270,6 +288,7 @@ struct loginfo_t *mk_read_log_output(FILE *log_output_file,
 
 	*num_entries_out = num_entries;
 	*num_max_entries_out = loginfo_maxsize;
+	print_debug_info("Done reading log output\n");
 	return loginfo;
 }
 
@@ -298,6 +317,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 
 	if(*loginfo == NULL) return;
 
+	print_debug_info("Collecting logs from Windows client\n");
 	printf("Collecting logs from Windows client\n");
 	userprofile = getenv("USERPROFILE");
 	if(userprofile == NULL)
@@ -331,6 +351,7 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 		}
 	if(found)
 	{
+		print_debug_info("Logs found\n");
 		error = 0;
 		num_new_logs = 0;
 		ct = 0;
@@ -338,11 +359,12 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 		while(fgets(buf, LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256, in) != NULL)
 		{
 			buf[LOG_ID_MAXLEN + 4 * PLAYER_NAME_MAXLEN + 256 - 1] = 0;//make sure buf is null terminated
-			if(sscanf(buf, "%d=", &n) != 1 || n != ct) break;//no more game log
+			print_debug_info("Parsing line %s\n", buf);
+			if(sscanf(buf, "%d=", &n) != 1) continue;
 
 			ct++;
 			p = strstr(buf, "=file=");
-			if(p == NULL) break;
+			if(p == NULL) continue;
 
 			//log id
 			p += 6;
@@ -522,9 +544,13 @@ void collect_logs_from_windows_client(struct loginfo_t **loginfo,
 		{
 			*loginfo = NULL;
 			fprintf(stderr, "Error: Cannot parse Windows client's log links\n");
+			print_debug_info("Error 2\n");
 		}
 	}
+	else
+		print_debug_info("No logs found\n");
 	fclose(in);
+	print_debug_info("Done collecting logs from Windows client\n");
 }
 
 void wait_and_exit(int return_code)
@@ -751,6 +777,7 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 	int i;
 	static char name_buffers[4][PLAYER_NAME_MAXLEN + 1];
 
+	print_debug_info("Writing loginfo to %s\n", LOG_OUTPUT_FILENAME);
 	//sort by log id (based on timestamp)
 	qsort(loginfo, num_entries, sizeof(loginfo[0]), loginfo_t_sf);
 	if(use_UTF8_BOM) fputs(UTF8_BOM_STR, log_output_file);
@@ -767,6 +794,7 @@ void write_loginfo_to_file(FILE *log_output_file, struct loginfo_t *loginfo,
 			loginfo[i].points[3], loginfo[i].scores[0], loginfo[i].scores[1], loginfo[i].scores[2], loginfo[i].scores[3], 
 			loginfo[i].rank1, rank_to_str(loginfo[i].rank1), loginfo[i].rating1, loginfo[i].log_id, get_placement(&loginfo[i]));
 	}
+	print_debug_info("Done writing loginfo to %s\n", LOG_OUTPUT_FILENAME);
 }
 
 #ifdef _WIN32
@@ -947,11 +975,13 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	
 	if(*loginfo == NULL) return;
 
+	print_debug_info("Collecting logs from flash client on %s\n", is_chrome ? "Google Chrome" : "non-Chrome browser");
 	printf("Collecting logs from flash client on %s\n", is_chrome ? "Google Chrome" : "non-Chrome browser");
 	in = get_flash_storage_file(&file_size, is_chrome);
 	if(in == NULL)
 	{
 		printf("No flash storage file\n");
+		print_debug_info("No flash storage file\n");
 		return;
 	}
 
@@ -992,6 +1022,7 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 		}
 		else
 			end = buf + bytes_read;
+		print_debug_info("Parsing %s\n", p);
 		//log id
 		q = (char *)memchr(p, '&', end - p);
 		if(q == NULL || q - p > LOG_ID_MAXLEN)
@@ -1177,10 +1208,12 @@ void collect_logs_from_flash_client(struct loginfo_t **loginfo,
 	{
 		*loginfo = NULL;
 		fprintf(stderr, "Error: cannot parse flash storage file\n");
+		print_debug_info("Error 2\n");
 	}
 
 	free(buf);
 	fclose(in);
+	print_debug_info("Done collecting logs from flash client on %s\n", is_chrome ? "Google Chrome" : "non-Chrome browser");
 }
 
 //returns default directory if argument not specified
@@ -1218,6 +1251,16 @@ int get_nowait_arg_flag(int argc, char *argv[])
 
 	for(i = 1; i < argc; i++)
 		if(strcmp(argv[i], "/nowait") == 0 || strcmp(argv[i], "--nowait") == 0) return 1;
+	return 0;
+}
+
+//returns 1 if flag is set, 0 otherwise
+int get_debug_arg_flag(int argc, char *argv[])
+{
+	int i;
+
+	for (i = 1; i < argc; i++)
+		if (strcmp(argv[i], "/debug") == 0 || strcmp(argv[i], "--debug") == 0) return 1;
 	return 0;
 }
 
@@ -1277,7 +1320,6 @@ char *mk_download_url_persistent(HINTERNET hSession, HINTERNET hConnect, WCHAR *
 	HINTERNET hRequest;
 	DWORD num_bytes_read, t, header_buf_len;
 	char *buf, *tight_buf;
-	unsigned char *uncompressed_buf;
 	const TCHAR *headers;
 	TCHAR *header_buf;
 	size_t buf_size;
@@ -1346,9 +1388,10 @@ char *mk_download_url_persistent(HINTERNET hSession, HINTERNET hConnect, WCHAR *
 		num_bytes_read += t;
 	}
 	//check if buf needs to be decompressed
-	WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_ENCODING, WINHTTP_HEADER_NAME_BY_INDEX, 
+	WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_ENCODING, WINHTTP_HEADER_NAME_BY_INDEX,
 		NULL, &header_buf_len, WINHTTP_NO_HEADER_INDEX);
 	header_buf = (TCHAR *)malloc(sizeof(char) * header_buf_len);
+	if(header_buf == NULL) print_error_and_exit("Error: out of memory (%u bytes needed)\n", (unsigned int)header_buf_len);
 	WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_ENCODING, WINHTTP_HEADER_NAME_BY_INDEX, 
 		header_buf, &header_buf_len, WINHTTP_NO_HEADER_INDEX);
 	if(wcscmp(header_buf, TEXT("gzip")) == 0)
@@ -1383,10 +1426,60 @@ char *mk_download_url_persistent(HINTERNET hSession, HINTERNET hConnect, WCHAR *
 	return tight_buf;
 }
 
+void convert_log_id(const char *log_id, char *out)
+{
+	const char *p1, *p2, *p3, *p;
+	int a, b, c, index, x, y, first, second;
+	char tmp[5];
+	static const int table[34] = {
+			22136, 52719, 55146, 42104, 59591, 46934, 9248, 28891,
+			49597, 52974, 62844, 4015, 18311, 50730, 43056, 17939,
+			64838, 38145, 27008, 39128, 35652, 63407, 65535, 23473,
+			35164, 55230, 27536, 4386, 64920, 29075, 42617, 17294, 18868, 2081};
+
+	p1 = strchr(log_id, '-');
+	if(p1 == NULL) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+	p2 = strchr(p1 + 1, '-');
+	if(p2 == NULL) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+	p3 = strchr(p2 + 1, '-');
+	if(p3 == NULL) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+	if(p3[1] != 'x')//no need to decode
+		strncpy_s(out, LOG_ID_MAXLEN + 1, log_id, _TRUNCATE);
+	else//need to decode
+	{
+		p = p3 + 2;
+		if(strlen(p) != 12) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+		tmp[0] = p[0];
+		tmp[1] = p[1];
+		tmp[2] = p[2];
+		tmp[3] = p[3];
+		tmp[4] = 0;
+		if(sscanf(tmp, "%x", &a) != 1) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+		tmp[0] = p[4];
+		tmp[1] = p[5];
+		tmp[2] = p[6];
+		tmp[3] = p[7];
+		if(sscanf(tmp, "%x", &b) != 1) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+		if(sscanf(p + 8, "%x", &c) != 1) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+		index = 0;
+		if(strncmp(log_id, "2010041111gm", 10) > 0)
+		{
+			sscanf(log_id + 4, "%d", &x);
+			x += 3000000;
+			y = log_id[9] - '0';
+			if(y < 0 || y > 9) print_error_and_exit("Error: invalid log id: %s\n", log_id);
+			index = x % (33 - y);
+		}
+		first = (a ^ b ^ table[index]) & 0xFFFF;
+		second = (b ^ c ^ table[index] ^ table[index + 1]) & 0xFFFF;
+		sprintf(out, "%.*s-%04x%04x", p3 - log_id, log_id, first, second);
+	}
+}
+
 //step = 0 for initialization, 1 for downloading, 2 for finalization
 char *mk_download_mjlog(const char *log_fn, int step)
 {
-	char *buf;
+	char *buf, converted_log_id[LOG_ID_MAXLEN + 1];
 	WCHAR path[1024];
 	int num_bytes, tries;
 	size_t rt;
@@ -1404,8 +1497,10 @@ char *mk_download_mjlog(const char *log_fn, int step)
 	}
 
 	_snwprintf_s(path, 1024, _TRUNCATE, L"/0/log/?");
-	if(mbstowcs_s(&rt, path + 8, 1024 - 8, log_fn, 1024 - 8) != 0) print_error_and_exit("mbstowcs_s failed");
-	printf("Downloading http://tenhou.net/0/log/?%s\n", log_fn);
+	convert_log_id(log_fn, converted_log_id);
+	if(mbstowcs_s(&rt, path + 8, 1024 - 8, converted_log_id, 1024 - 8) != 0) print_error_and_exit("mbstowcs_s failed");
+	print_debug_info("Downloading http://tenhou.net/0/log/?%s\n", converted_log_id);
+	printf("Downloading http://tenhou.net/0/log/?%s\n", converted_log_id);
 
 	for(tries = 0; tries < 4; tries++)
 	{
@@ -1533,6 +1628,7 @@ int get_loginfo_rank_rating(struct loginfo_t *loginfo, int num_entries, const ch
 	char *mjlog_buf;
 	static char path[1024];
 
+	print_debug_info("Downloading log files\n");
 	mjlog_buf = NULL;
 	winhttp_inited = 0;
 	num_game_logs_downloaded = 0;
@@ -1577,7 +1673,23 @@ int get_loginfo_rank_rating(struct loginfo_t *loginfo, int num_entries, const ch
 	}
 	if(winhttp_inited == 1) mk_download_mjlog(NULL, 2);//winhttp finalization
 	printf("%d game logs downloaded and saved in directory %s\n", num_game_logs_downloaded, log_directory);
+	print_debug_info("%d game logs downloaded and saved in directory %s\n", num_game_logs_downloaded, log_directory);
 	return 0;
+}
+
+void init_debug_file()
+{
+	if(debug_flag)
+	{
+		debug_log_file = fopen("debug.log", "w");
+		if(debug_log_file == NULL)
+			print_error_and_exit("Error: cannot open debug.log.\n");
+	}
+}
+
+void finalize_debug_file()
+{
+	if(debug_flag) fclose(debug_log_file);
 }
 
 int main(int argc, char *argv[])
@@ -1593,9 +1705,16 @@ int main(int argc, char *argv[])
 		print_usage();
 		return 0;
 	}
+	debug_flag = get_debug_arg_flag(argc, argv);
+	init_debug_file();
+	print_debug_info("Started\n");
 	nowait_flag = get_nowait_arg_flag(argc, argv);
+	print_debug_info("nowait_flag = %d\n", nowait_flag);
 	UTF8_flag = get_UTF8_arg_flag(argc, argv);
+	print_debug_info("UTF8_flag = %d\n", UTF8_flag);
+	
 	log_directory = get_log_directory(argc, argv);
+	print_debug_info("log_directory = %s\n", log_directory);
 	create_log_directory(log_directory);
 	//create/read current log output file
 	log_output_file = get_log_output_file(0, UTF8_flag);
@@ -1630,6 +1749,7 @@ int main(int argc, char *argv[])
 			printf("Logs saved to %s\n", LOG_OUTPUT_FILENAME);
 		}
 	}
+	finalize_debug_file();
 	if(!nowait_flag) wait_and_exit(0);
 	
 	return 0;
